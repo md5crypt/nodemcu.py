@@ -7,6 +7,10 @@ this script can:
 * paste any file (binary) to the device filesystem from clipboard
 * has a working command history and arrow keys
 
+if needs the following python modules
+* pyserial
+* clipboard
+
 script command line help:
 ```
 usage: nodemcu.py device [boudrate]
