@@ -135,11 +135,11 @@ def reader(tty):
 
 def run():
 	global reader_prompt
-	sys.stdout.write("waiting for prompt...")
-	sys.stdout.write("\r")
+	print("waiting for prompt...")
 	sem.acquire()
-	reader_prompt = ''
-	command(':uart fast')
+	sem.release()
+	print("\rprompt ok.")
+	sys.stdout.write(reader_prompt)
 	replcmd.cmdloop()
 	
 if __name__ == '__main__':
