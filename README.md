@@ -4,7 +4,7 @@
 this script can:
 * send and read data to and from the device 
 * paste command seq. from clipboard
-* paste any file (binary) to the device filesystem from clipboard
+* paste any file (binary) to the device filesystem from clipboard or file
 * has a working command history and arrow keys
 
 if needs the following python modules
@@ -27,8 +27,9 @@ when the scirpt starts and connectes with nodemcu, it will show the lua interete
 
 ```
 :uart [boudrate]        : dynamic boudrate change
+:file dst src           : write local file dst to src (tranfer will be binary)
 :paste [file]           : execute clipboard content
-                          or write it to file if given (tranfer will be binary)
+                          or write it to file if filename given (tranfer will be binary)
 ```
 
 ##### By default nodemcu has uart echo turned on. Run the ":uart" command to turn it off. You have to do it every nodemcu restart or put "uart.setup(0,9600,8,0,1,0)" to init.lua

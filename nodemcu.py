@@ -7,6 +7,7 @@ class Repl(cmd.Cmd):
 	def do_help(self, line):
 		print(
 			":uart [boudrate]\t: dynamic boudrate change\n"
+			":file dst src   \t: write local file dst to src\n"
 			":paste [file]   \t: execute clipboard content\n"
 			"                \t  or write it to file if given (tranfer will be binary)\n" )
 		sys.stdout.write(reader_prompt)
@@ -14,7 +15,8 @@ class Repl(cmd.Cmd):
 		return True
 	def default(self, line):
 		if line[0] == ':':
-			command(line)
+			if command(line) is not None:
+				sys.stdout.write(reader_prompt)
 			return
 		sem.acquire()
 		tty.write(line+"\r\n")
@@ -48,7 +50,7 @@ luabase64 = [
 	"function dec(d) local b,rsh,ban,l,out='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',bit.rshift,bit.band,0,''for i=1,d:len() do",
 	"l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end"
 ]
-cmd_list = ['uart','paste','help']
+cmd_list = ['uart','paste','help','file']
 	
 def find_cmd(cmd):
 	cnt = 0
@@ -64,6 +66,7 @@ def command(line):
 	cmd = find_cmd(args[0])
 	if cmd == None:
 		print("Unknown command "+args[0])
+		return False
 	if cmd == 'uart':
 		if len(args) == 1:
 			b = 9600
@@ -78,9 +81,20 @@ def command(line):
 		open_tty(b)
 	elif cmd == 'help':
 		replcmd.do_help('')
-	elif cmd == 'paste':
-		buff = clipboard.paste()
-		if len(args) == 2:
+	elif cmd == 'paste' or cmd == 'file':
+		if cmd == 'file':
+			if len(args) != 3:
+				print("bad args, should be ':file dst src'")
+				return False
+			try:
+				with open(args[2],"rb") as f:
+					buff = f.read()
+			except IOError:
+				print("file {0} not found".format(args[2]))
+				return False
+		else:
+			buff = clipboard.paste()
+		if len(args) > 1:
 			head = []
 			head += luabase64
 			head.append('file.remove("{0}") file.open("{0}","w")'.format(args[1]))
