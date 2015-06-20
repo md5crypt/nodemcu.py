@@ -35,8 +35,6 @@ when the scirpt starts and connectes with nodemcu, it will show the lua interete
 
 notice that the commands start with a ':'
 
-###by default nodemcu has uart echo turned on. Run the ":uart" command to turn it off
-
 you can use command prefixes (like ':p' or ':u')
 
 the :uart parameter defaults to 9600 and can be 'fast' for 460800
