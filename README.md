@@ -5,7 +5,8 @@ this script can:
 * paste command seq. from clipboard
 * paste any file (binary) to the device filesystem from clipboard or file
 * has a working command history and arrow keys
-* compile to bytecode large lua files (file.compile kept triggering the watchdog while processing large files)
+* cross-compile to bytecode and send large lua files using luac-cross (windows binary included in this repo)
+* compile to bytecode and save using string.dump on the device (survives larger files then file.compile)
 
 if needs the following python modules
 * pyserial
@@ -26,12 +27,16 @@ when the scirpt starts and connectes with nodemcu, it will show the lua interete
 
 
 ```
-:uart [boudrate]    : dynamic boudrate change
-:file dst src       : write local file src to dst
-:paste [file]       : execute clipboard content
-                      or write it to file if given
-:compile dst [file] : save clipboard or local file content
-                      as lua bytecode in dst
+:uart [boudrate]          - dynamic boudrate change
+:load src                 - evaluate file content
+:file dst src             - write local file src to dst
+:paste [file]             - execute clipboard content
+                            or write it to file if given
+:cross-compile dst [file] - compile file or clipboard using
+                            luac-cross and save to dst
+:soft-compile dst [file]  - compile file or clipboard on device
+                            and save do dst. This call can handle
+                            lager files than file.compile
 ```
 
 ##### By default nodemcu has uart echo turned on. This application will NOT work with echo on. Run the ":uart" command to turn it off. You have to do it every nodemcu restart or put "uart.setup(0,9600,8,0,1,0)" to init.lua
@@ -42,7 +47,11 @@ you can use command prefixes (like ':p' or ':u')
 
 the :uart parameter defaults to 9600 and can be 'fast' for 460800
 
-the code used with :compile must be wrapped in a named function declaration
+:load and :paste evaluates commands so when you will use :p with clipboard content "print(1)\n:p" you get a beautiful loop
+
+##### in the beging of the script there is a constant LUAC_PATH. Set to point to your luac-cross binary
+
+here are instruction how to compile luac-cross (http://www.esp8266.com/viewtopic.php?f=24&t=1305)
 
 to exit just hit ctrl-C
 

@@ -1,17 +1,36 @@
-import thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii
+import thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii,subprocess
+
+LUAC_PATH = "luac.cross"
+LUAC_ARGS = "-cci 32 -cce little  -ccn int 32"
 
 sem = None
+
+def luac_compile(buff):
+	p = subprocess.Popen(
+		"{0} -o - {1} -".format(LUAC_PATH,LUAC_ARGS),
+		stdin=subprocess.PIPE,
+		stdout=subprocess.PIPE,
+		shell=True
+	)
+	stdout,_ = p.communicate(buff)
+	if p.returncode == 0:
+		return stdout
+	return None
 
 class Repl(cmd.Cmd):
 	prompt = ''
 	def do_help(self, line):
 		print(
-			":uart [boudrate]    : dynamic boudrate change\n"
-			":file dst src       : write local file src to dst\n"
-			":paste [file]       : execute clipboard content\n"
-			"                      or write it to file if given\n"
-			":compile dst [file] : save clipboard or local file content\n"
-			"                      as lua bytecode in dst\n")
+			":uart [boudrate]          - dynamic boudrate change\n"
+			":load src                 - evaluate file content\n"
+			":file dst src             - write local file src to dst\n"
+			":paste [file]             - execute clipboard content\n"
+			"                            or write it to file if given\n"
+			":cross-compile dst [file] - compile file or clipboard using\n"
+			"                            luac-cross and save to dst\n"
+			":soft-compile dst [file]  - compile file or clipboard on device\n"
+			"                            and save do dst. This call can handle\n"
+			"                            lager files than file.compile")
 		sys.stdout.write(reader_prompt)
 	def do_EOF(self, line):
 		return True
@@ -55,7 +74,7 @@ lualib = [
 	'print("CRC OK") else print("CRC MISSMATCH!") end file.close() end function __dec__(d) local b,ban,rsh,l,out="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",bit.band',
 	',bit.rshift,0,"" for i=1,d:len() do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
 ]
-cmd_list = ['uart','paste','help','file','compile']
+cmd_list = ['uart','paste','help','file','cross-compile','soft-compile','load']
 	
 def find_cmd(cmd):
 	cnt = 0
@@ -88,8 +107,13 @@ def command(line):
 		open_tty(b)
 	elif cmd == 'help':
 		replcmd.do_help('')
-	elif cmd == 'paste' or cmd == 'file' or cmd=='compile':
-		if cmd == 'file' or (cmd == 'compile' and len(args) == 3):
+	elif cmd == 'paste' or cmd == 'file' or cmd.find('compile') or cmd == 'load':
+		if cmd == 'file' or cmd == 'load' or (cmd.find('compile') and len(args) == 3):
+			if cmd == 'load':
+				if len(args)==1:
+					print("bad args, should be ':load src'")
+					return False
+				args.append(args[1])
 			if len(args) != 3:
 				print("bad args, should be ':file dst src'")
 				return False
@@ -101,17 +125,18 @@ def command(line):
 				return False
 		else:
 			buff = clipboard.paste()
-		if cmd == 'compile':
-			m = re.match('function\s+([a-zA-Z_][a-zA-Z_0-9]*)\s*\(',buff)
-			if m == None:
-				print("wrapper function name not found")
-				return False
-			token = m.group(1)
-			head = re.split("[\r\n]+",buff)
+		if cmd == 'soft-compile':
+			head = ["collectgarbage() function __wrapper__()"]
+			head += re.split("[\r\n]+",buff)
+			head.append("end")
 			head.append(OPEN_SEQ.format(args[1]))
-			head.append("file.write(string.dump({0})) file.close() {0}=nil collectgarbage()".format(token))
-		elif len(args) > 1:
-			head = []
+			head.append("file.write(string.dump(__wrapper__)) file.close() __wrapper__=nil collectgarbage()")
+		elif len(args) > 1 and cmd != 'load':
+			if cmd == 'cross-compile':
+				buff = luac_compile(buff)
+				if buff == None:
+					return False
+			head = ['collectgarbage()']
 			head += lualib
 			head.append(OPEN_SEQ.format(args[1]))
 			for i in xrange(0,len(buff),126):
@@ -130,8 +155,11 @@ def command(line):
 			head = re.split("[\r\n]+",buff)
 		sys.stdout.write(reader_prompt)
 		for x in head:
-			sem.acquire()
-			tty_send(bytes(x))			
+			if x[0]==':' and (cmd=='load' or cmd=='paste'):
+				command(x)
+			else:
+				sem.acquire()
+				tty_send(bytes(x))
 reader_quit = False
 reader_prompt = ''
 def reader(tty):
