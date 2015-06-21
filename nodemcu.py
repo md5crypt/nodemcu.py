@@ -6,10 +6,12 @@ class Repl(cmd.Cmd):
 	prompt = ''
 	def do_help(self, line):
 		print(
-			":uart [boudrate]\t: dynamic boudrate change\n"
-			":file dst src   \t: write local file dst to src\n"
-			":paste [file]   \t: execute clipboard content\n"
-			"                \t  or write it to file if given (tranfer will be binary)\n" )
+			":uart [boudrate]    : dynamic boudrate change\n"
+			":file dst src       : write local file src to dst\n"
+			":paste [file]       : execute clipboard content\n"
+			"                      or write it to file if given\n"
+			":compile dst [file] : save clipboard or local file content\n"
+			"                      as lua bytecode in dst\n")
 		sys.stdout.write(reader_prompt)
 	def do_EOF(self, line):
 		return True
@@ -53,7 +55,7 @@ lualib = [
 	'print("CRC OK") else print("CRC MISSMATCH!") end file.close() end function __dec__(d) local b,ban,rsh,l,out="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",bit.band',
 	',bit.rshift,0,"" for i=1,d:len() do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
 ]
-cmd_list = ['uart','paste','help','file']
+cmd_list = ['uart','paste','help','file','compile']
 	
 def find_cmd(cmd):
 	cnt = 0
@@ -64,6 +66,8 @@ def find_cmd(cmd):
 			m = k;
 	return m if cnt==1 else None;
 
+#sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
+OPEN_SEQ = 'file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'
 def command(line):
 	args = re.split('\s+',line[1:])
 	cmd = find_cmd(args[0])
@@ -84,8 +88,8 @@ def command(line):
 		open_tty(b)
 	elif cmd == 'help':
 		replcmd.do_help('')
-	elif cmd == 'paste' or cmd == 'file':
-		if cmd == 'file':
+	elif cmd == 'paste' or cmd == 'file' or cmd=='compile':
+		if cmd == 'file' or (cmd == 'compile' and len(args) == 3):
 			if len(args) != 3:
 				print("bad args, should be ':file dst src'")
 				return False
@@ -97,11 +101,19 @@ def command(line):
 				return False
 		else:
 			buff = clipboard.paste()
-		if len(args) > 1:
+		if cmd == 'compile':
+			m = re.match('function\s+([a-zA-Z_][a-zA-Z_0-9]*)\s*\(',buff)
+			if m == None:
+				print("wrapper function name not found")
+				return False
+			token = m.group(1)
+			head = re.split("[\r\n]+",buff)
+			head.append(OPEN_SEQ.format(args[1]))
+			head.append("file.write(string.dump({0})) file.close() {0}=nil collectgarbage()".format(token))
+		elif len(args) > 1:
 			head = []
 			head += lualib
-			#sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
-			head.append('file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'.format(args[1]))
+			head.append(OPEN_SEQ.format(args[1]))
 			for i in xrange(0,len(buff),126):
 				if i+125 < len(buff):
 					head.append('file.write(__dec__("{0}"))'.format(base64.b64encode(buff[i:i+126])))
@@ -119,8 +131,7 @@ def command(line):
 		sys.stdout.write(reader_prompt)
 		for x in head:
 			sem.acquire()
-			tty_send(bytes(x))
-
+			tty_send(bytes(x))			
 reader_quit = False
 reader_prompt = ''
 def reader(tty):
