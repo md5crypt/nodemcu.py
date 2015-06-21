@@ -1,4 +1,4 @@
-import thread,threading,serial,sys,cmd,re,time,clipboard,base64
+import thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii
 
 sem = None
 
@@ -46,9 +46,11 @@ def tty_send(cmd):
 	print(cmd)
 	tty.write(cmd+"\r\n")
 
-luabase64 = [
-	"function dec(d) local b,rsh,ban,l,out='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/',bit.rshift,bit.band,0,''for i=1,d:len() do",
-	"l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end"
+lualib = [
+	'function __c32__(f,v) local crc,aku=function(s,c) local n,x,r,p=bit.bnot,bit.bxor,bit.rshift,0xEDB88320 c=n(c) for i=1,s:len() do c=x(c,s:byte(i,i)) for j=0,7 do if bit.band(c,1)~=0',
+	'then c=x(r(c,1),p) else c=r(c,1) end end end return n(c) end,0 file.open(f,"r") local l=file.read(128) while l~=nil do tmr.wdclr() aku=crc(l,aku) l=file.read(128) end if aku==v then',
+	'print("CRC OK") else print("CRC MISSMATCH!") end file.close() end function __dec__(d) local b,ban,rsh,l,out="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",bit.band',
+	',bit.rshift,0,"" for i=1,d:len() do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
 ]
 cmd_list = ['uart','paste','help','file']
 	
@@ -96,11 +98,11 @@ def command(line):
 			buff = clipboard.paste()
 		if len(args) > 1:
 			head = []
-			head += luabase64
-			head.append('file.remove("{0}") file.open("{0}","w")'.format(args[1]))
+			head += lualib
+			head.append('file.close() file.open("{0}","r") file.read(0) file.seek("set") file.close() file.open("{0}","w")'.format(args[1]))
 			for i in xrange(0,len(buff),126):
 				if i+125 < len(buff):
-					head.append('file.write(dec("{0}"))'.format(base64.b64encode(buff[i:i+126])))
+					head.append('file.write(__dec__("{0}"))'.format(base64.b64encode(buff[i:i+126])))
 				else:
 					tail = buff[i:]
 					r = 3-(len(tail)%3)
@@ -108,8 +110,8 @@ def command(line):
 					if r!=3:
 						tail += ' '*r
 						sub = ':sub(1,-{0})'.format(r+1)
-					head.append('file.write(dec("{0}"){1})'.format(base64.b64encode(tail),sub))
-			head.append('file.close()')
+					head.append('file.write(__dec__("{0}"){1})'.format(base64.b64encode(tail),sub))
+			head.append('file.close() __c32__("{0}",{1}) __c32__=nil __dec__=nil  collectgarbage()'.format(args[1],binascii.crc32(buff)))
 		else:
 			head = re.split("[\r\n]+",buff)
 		sys.stdout.write(reader_prompt)

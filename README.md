@@ -32,7 +32,7 @@ when the scirpt starts and connectes with nodemcu, it will show the lua interete
                           or write it to file if filename given (tranfer will be binary)
 ```
 
-##### By default nodemcu has uart echo turned on. Run the ":uart" command to turn it off. You have to do it every nodemcu restart or put "uart.setup(0,9600,8,0,1,0)" to init.lua
+##### By default nodemcu has uart echo turned on. File transfers will NOT work with echo on. Run the ":uart" command to turn it off. You have to do it every nodemcu restart or put "uart.setup(0,9600,8,0,1,0)" to init.lua
 
 notice that the commands start with a ':'
 
