@@ -46,6 +46,7 @@ def tty_send(cmd):
 	print(cmd)
 	tty.write(cmd+"\r\n")
 
+#base64 decode and crc32 file check, wrote to be small, not fast
 lualib = [
 	'function __c32__(f,v) local crc,aku=function(s,c) local n,x,r,p=bit.bnot,bit.bxor,bit.rshift,0xEDB88320 c=n(c) for i=1,s:len() do c=x(c,s:byte(i,i)) for j=0,7 do if bit.band(c,1)~=0',
 	'then c=x(r(c,1),p) else c=r(c,1) end end end return n(c) end,0 file.open(f,"r") local l=file.read(128) while l~=nil do tmr.wdclr() aku=crc(l,aku) l=file.read(128) end if aku==v then',
@@ -99,7 +100,8 @@ def command(line):
 		if len(args) > 1:
 			head = []
 			head += lualib
-			head.append('file.close() file.open("{0}","r") file.read(0) file.seek("set") file.close() file.open("{0}","w")'.format(args[1]))
+			#sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
+			head.append('file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'.format(args[1]))
 			for i in xrange(0,len(buff),126):
 				if i+125 < len(buff):
 					head.append('file.write(__dec__("{0}"))'.format(base64.b64encode(buff[i:i+126])))
@@ -111,7 +113,7 @@ def command(line):
 						tail += ' '*r
 						sub = ':sub(1,-{0})'.format(r+1)
 					head.append('file.write(__dec__("{0}"){1})'.format(base64.b64encode(tail),sub))
-			head.append('file.close() __c32__("{0}",{1}) __c32__=nil __dec__=nil  collectgarbage()'.format(args[1],binascii.crc32(buff)))
+			head.append('file.close() __c32__("{0}",{1}) __c32__=nil __dec__=nil collectgarbage()'.format(args[1],binascii.crc32(buff)))
 		else:
 			head = re.split("[\r\n]+",buff)
 		sys.stdout.write(reader_prompt)
