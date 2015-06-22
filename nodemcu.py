@@ -97,7 +97,7 @@ lualib_b64 = [
 	'do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
 ]
 
-cmd_list = ['uart','paste','help','file','cross-compile','soft-compile','load','exec']
+cmd_list = ['uart','paste','help','file','cross-compile','soft-compile','load','execute']
 	
 def find_cmd(cmd):
 	cnt = 0
@@ -146,8 +146,8 @@ def command(line):
 	elif cmd == 'help':
 		replcmd.do_help('')
 	elif cmd == 'paste' or cmd == 'file' or cmd.find('compile') or cmd == 'load':
-		if cmd == 'file' or cmd == 'load' or (cmd == 'exec' and len(args) == 2) or (cmd.find('compile') and len(args) == 3):
-			if cmd == 'load' or cmd == 'exec':
+		if cmd == 'file' or cmd == 'load' or (cmd == 'execute' and len(args) == 2) or (cmd.find('compile') and len(args) == 3):
+			if cmd == 'load' or cmd == 'execute':
 				if len(args)==1:
 					print("bad args, should be ':load src'")
 					return False
@@ -163,7 +163,7 @@ def command(line):
 				return False
 		else:
 			buff = clipboard.paste()
-		if cmd == 'cross-compile' or cmd == 'exec':
+		if cmd == 'cross-compile' or cmd == 'execute':
 			buff = luac_compile(buff)
 			if buff == None:
 				return False
@@ -173,7 +173,7 @@ def command(line):
 			head.append("end")
 			head.append(OPEN_SEQ.format(args[1]))
 			head.append("file.write(string.dump(__wrapper__)) file.close() __wrapper__=nil collectgarbage()")
-		elif cmd == 'exec':
+		elif cmd == 'execute':
 			head = ['collectgarbage() __backup__ = c c = {}']
 			head += lualib_b64
 			for x in reversed(base64_split(buff)):
