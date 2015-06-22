@@ -131,7 +131,7 @@ def base64_split(buff):
 
 #sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
 OPEN_SEQ = 'file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'
-def command(line):
+def command(line,reku=False):
 	global stop_command
 	args = re.split('\s+',line[1:])
 	cmd = find_cmd(args[0])
@@ -202,17 +202,20 @@ def command(line):
 		else:
 			head = re.split("[\r\n]+",buff)
 		sys.stdout.write(reader_prompt)
-		stop_command = False
+		if not reku:
+			stop_command = False
 		for x in head:
 			if stop_command:
 				print("aborted")
 				break
 			if x[0]==':' and (cmd=='load' or cmd=='paste'):
-				command(x)
+				command(x,True)
 			else:
 				tty_send(bytes(x))
 				sem.acquire()
-		stop_command = True
+		if not reku:
+			stop_command = True
+
 reader_quit = False
 reader_prompt = ''
 def reader(tty):
