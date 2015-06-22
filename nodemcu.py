@@ -16,15 +16,20 @@ sem = None
 
 def luac_compile(buff):
 	p = subprocess.Popen(
-		"{0} -o - {1} -".format(LUAC_PATH,LUAC_ARGS),
+		"{0} -o tmp.lc {1} -".format(LUAC_PATH,LUAC_ARGS),
 		stdin=subprocess.PIPE,
-		stdout=subprocess.PIPE,
 		shell=True
 	)
-	stdout,_ = p.communicate(buff)
-	if p.returncode == 0:
-		return stdout
-	return None
+	p.communicate(buff)
+	if p.returncode != 0:
+		return None
+	with open('tmp.lc','rb') as f:
+		out = f.read()
+	try:
+		os.remove('tmp.lc')
+	except:
+		pass
+	return out
 
 class Repl(cmd.Cmd):
 	prompt = ''
@@ -35,12 +40,14 @@ class Repl(cmd.Cmd):
 			":uart [boudrate]          - dynamic boudrate change\n"
 			":load src                 - evaluate file content\n"
 			":file dst src             - write local file src to dst\n"
-			":paste [file]             - execute clipboard content\n"
+			":paste [file]             - evaluate clipboard content\n"
 			"                            or write it to file if given\n"
 			":cross-compile dst [file] - compile file or clipboard using\n"
 			"                            luac-cross and save to dst\n"
+			":execute [file]           - cross-compile and execute clipboard or\n"
+			"                            file content without saving to flash\n"
 			":soft-compile dst [file]  - compile file or clipboard on device\n"
-			"                            and save do dst. This call can handle\n"
+			"                            and save do dst. This call should handle\n"
 			"                            lager files than file.compile")
 		sys.stdout.write(reader_prompt)
 	def do_EOF(self, line):
@@ -80,13 +87,17 @@ def tty_send(cmd):
 	tty.write(cmd+"\r\n")
 
 #base64 decode and crc32 file check, wrote to be small, not fast
-lualib = [
-	'function __c32__(f,v) local crc,aku=function(s,c) local n,x,r,p=bit.bnot,bit.bxor,bit.rshift,0xEDB88320 c=n(c) for i=1,s:len() do c=x(c,s:byte(i,i)) for j=0,7 do if bit.band(c,1)~=0',
-	'then c=x(r(c,1),p) else c=r(c,1) end end end return n(c) end,0 file.open(f,"r") local l=file.read(128) while l~=nil do tmr.wdclr() aku=crc(l,aku) l=file.read(128) end if aku==v then',
-	'print("CRC OK") else print("CRC MISSMATCH!") end file.close() end function __dec__(d) local b,ban,rsh,l,out="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",bit.band',
-	',bit.rshift,0,"" for i=1,d:len() do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
+lualib_crc = [
+	'function __c32__(f,v) local crc,aku=function(s,c) local n,x,r,p=bit.bnot,bit.bxor,bit.rshift,0xEDB88320 c=n(c) for i=1,s:len() do c=x(c,s:byte(i,i))',
+	'for j=0,7 do if bit.band(c,1)~=0 then c=x(r(c,1),p) else c=r(c,1) end end end return n(c) end,0 file.open(f,"r") local l=file.read(128) while l~=nil',
+	'do tmr.wdclr() aku=crc(l,aku) l=file.read(128) end if aku==v then print("CRC OK") else print("CRC MISSMATCH!") end file.close() end'
 ]
-cmd_list = ['uart','paste','help','file','cross-compile','soft-compile','load']
+lualib_b64 = [
+	'function __dec__(d) local b,ban,rsh,l,out="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",bit.band,bit.rshift,0,"" for i=1,d:len()',
+	'do l=l+b:find(d:sub(i,i))-1 if i%4==0 then out=out..string.char(rsh(l,16),ban(rsh(l,8),255),ban(l,255)) l=0 end l=bit.lshift(l,6) end return out end'
+]
+
+cmd_list = ['uart','paste','help','file','cross-compile','soft-compile','load','exec']
 	
 def find_cmd(cmd):
 	cnt = 0
@@ -96,6 +107,21 @@ def find_cmd(cmd):
 			cnt += 1;
 			m = k;
 	return m if cnt==1 else None;
+	
+def base64_split(buff):
+	out = []
+	for i in xrange(0,len(buff),126):
+		if i+125 < len(buff):
+			out.append('__dec__("{0}")'.format(base64.b64encode(buff[i:i+126])))
+		else:
+			tail = buff[i:]
+			r = 3-(len(tail)%3)
+			sub = ''
+			if r!=3:
+				tail += ' '*r
+				sub = ':sub(1,-{0})'.format(r+1)
+			out.append('__dec__("{0}"){1}'.format(base64.b64encode(tail),sub))
+	return out
 
 #sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
 OPEN_SEQ = 'file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'
@@ -120,8 +146,8 @@ def command(line):
 	elif cmd == 'help':
 		replcmd.do_help('')
 	elif cmd == 'paste' or cmd == 'file' or cmd.find('compile') or cmd == 'load':
-		if cmd == 'file' or cmd == 'load' or (cmd.find('compile') and len(args) == 3):
-			if cmd == 'load':
+		if cmd == 'file' or cmd == 'load' or (cmd == 'exec' and len(args) == 2) or (cmd.find('compile') and len(args) == 3):
+			if cmd == 'load' or cmd == 'exec':
 				if len(args)==1:
 					print("bad args, should be ':load src'")
 					return False
@@ -137,31 +163,30 @@ def command(line):
 				return False
 		else:
 			buff = clipboard.paste()
+		if cmd == 'cross-compile' or cmd == 'exec':
+			buff = luac_compile(buff)
+			if buff == None:
+				return False
 		if cmd == 'soft-compile':
 			head = ["collectgarbage() function __wrapper__()"]
 			head += re.split("[\r\n]+",buff)
 			head.append("end")
 			head.append(OPEN_SEQ.format(args[1]))
 			head.append("file.write(string.dump(__wrapper__)) file.close() __wrapper__=nil collectgarbage()")
+		elif cmd == 'exec':
+			head = ['collectgarbage() __backup__ = c c = {}']
+			head += lualib_b64
+			for x in reversed(base64_split(buff)):
+				head.append('table.insert(c,{0})'.format(x))
+			head.append('__code__=c c=__backup__ __backup__=nil')
+			head.append('local r,e=load(function() collectgarbage() tmr.wdclr() return table.remove(__code__,#__code__) end) if r==nil then print(e) else r() end __code__= nil')
 		elif len(args) > 1 and cmd != 'load':
-			if cmd == 'cross-compile':
-				buff = luac_compile(buff)
-				if buff == None:
-					return False
 			head = ['collectgarbage()']
-			head += lualib
+			head += lualib_b64
+			head += lualib_crc
 			head.append(OPEN_SEQ.format(args[1]))
-			for i in xrange(0,len(buff),126):
-				if i+125 < len(buff):
-					head.append('file.write(__dec__("{0}"))'.format(base64.b64encode(buff[i:i+126])))
-				else:
-					tail = buff[i:]
-					r = 3-(len(tail)%3)
-					sub = ''
-					if r!=3:
-						tail += ' '*r
-						sub = ':sub(1,-{0})'.format(r+1)
-					head.append('file.write(__dec__("{0}"){1})'.format(base64.b64encode(tail),sub))
+			for x in base64_split(buff):
+				head.append('file.write({0})'.format(x))
 			head.append('file.close() __c32__("{0}",{1}) __c32__=nil __dec__=nil collectgarbage()'.format(args[1],binascii.crc32(buff)))
 		else:
 			head = re.split("[\r\n]+",buff)
