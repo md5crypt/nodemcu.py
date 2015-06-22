@@ -52,9 +52,6 @@ class Repl(cmd.Cmd):
 			return
 		tty.write(line+"\r\n")
 		sem.acquire()
-	def completedefault(text, line, begidx, endidx):
-		print (text, line, begidx, endidx)
-		return ['aaa','bbb']
 	def emptyline(self):
 		tty.write("\r\n")
 		sem.acquire()
