@@ -1,7 +1,16 @@
-import thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii,subprocess
+import os,thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii,subprocess
+
+use_readline = True
+if sys.platform == 'win32':
+	use_readline = False
+else:
+	try:
+		import readline
+	except ImportError:
+		use_readline = False
 
 LUAC_PATH = "luac.cross"
-LUAC_ARGS = "-cci 32 -cce little  -ccn int 32"
+LUAC_ARGS = "-cci 32 -cce little  -ccn int 32 -s"
 
 sem = None
 
@@ -19,6 +28,8 @@ def luac_compile(buff):
 
 class Repl(cmd.Cmd):
 	prompt = ''
+	use_rawinput = use_readline
+		
 	def do_help(self, line):
 		print(
 			":uart [boudrate]          - dynamic boudrate change\n"
@@ -39,12 +50,15 @@ class Repl(cmd.Cmd):
 			if command(line) is not None:
 				sys.stdout.write(reader_prompt)
 			return
-		sem.acquire()
 		tty.write(line+"\r\n")
-	def emptyline(self):
 		sem.acquire()
+	def completedefault(text, line, begidx, endidx):
+		print (text, line, begidx, endidx)
+		return ['aaa','bbb']
+	def emptyline(self):
 		tty.write("\r\n")
-replcmd = Repl()
+		sem.acquire()
+replcmd = Repl(None)
 
 def kill_tty():
 	global reader_quit
@@ -57,11 +71,12 @@ def kill_tty():
 def open_tty(boud):
 	global tty,sem
 	sem = threading.Semaphore(0)
-	tty = serial.Serial(sys.argv[1],boud,timeout=None)
+	tty = serial.Serial(sys.argv[1],boud,timeout=0.5)
 	thread.start_new_thread(reader,(tty,))
 	sys.stdout.write("\r")
 	sys.stdout.flush()
 	tty.write("\r\n")
+	sem.acquire()
 	
 def tty_send(cmd):
 	print(cmd)
@@ -158,8 +173,8 @@ def command(line):
 			if x[0]==':' and (cmd=='load' or cmd=='paste'):
 				command(x)
 			else:
-				sem.acquire()
 				tty_send(bytes(x))
+				sem.acquire()
 reader_quit = False
 reader_prompt = ''
 def reader(tty):
@@ -183,18 +198,21 @@ def reader(tty):
 		buff += data
 		end = 0
 		for x in regex.finditer(buff):
-			sem.release()
 			reader_prompt = x.group(0)
+			if use_readline:
+				replcmd.prompt = x.group(0)
 			end = x.end(0)
+			sem.release()
 		if end > 0:
 			buff = buff[end:]
+			if use_readline:
+				sys.stdout.write("\r")
 	reader_quit = False
 
 def run():
 	global reader_prompt
 	print("waiting for prompt...")
-	sem.acquire()
-	sem.release()
+	open_tty(b)
 	print("\rprompt ok.")
 	sys.stdout.write(reader_prompt)
 	replcmd.cmdloop()
@@ -216,10 +234,11 @@ if __name__ == '__main__':
 			b = int(sys.argv[2])
 	else:
 		b = 9600
-	open_tty(b)
 	thread.start_new_thread(run,())
 	while True:
 		try:
 			time.sleep(0.1)
 		except KeyboardInterrupt:
+			if use_readline:
+				os.system('stty sane')
 			exit(0)
