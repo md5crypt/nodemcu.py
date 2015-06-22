@@ -1,5 +1,8 @@
 import os,thread,threading,serial,sys,cmd,re,time,clipboard,base64,binascii,subprocess
 
+boudrate = 9600
+stop_command = True
+
 use_readline = True
 if sys.platform == 'win32':
 	use_readline = False
@@ -33,8 +36,7 @@ def luac_compile(buff):
 
 class Repl(cmd.Cmd):
 	prompt = ''
-	use_rawinput = use_readline
-		
+	use_rawinput = use_readline	
 	def do_help(self, line):
 		print(
 			":uart [boudrate]          - dynamic boudrate change\n"
@@ -50,8 +52,6 @@ class Repl(cmd.Cmd):
 			"                            and save do dst. This call should handle\n"
 			"                            lager files than file.compile")
 		sys.stdout.write(reader_prompt)
-	def do_EOF(self, line):
-		return True
 	def default(self, line):
 		if line[0] == ':':
 			if command(line) is not None:
@@ -62,6 +62,8 @@ class Repl(cmd.Cmd):
 	def emptyline(self):
 		tty.write("\r\n")
 		sem.acquire()
+	def do_EOF(self,line):
+		return True
 replcmd = Repl(None)
 
 def kill_tty():
@@ -75,7 +77,11 @@ def kill_tty():
 def open_tty(boud):
 	global tty,sem
 	sem = threading.Semaphore(0)
-	tty = serial.Serial(sys.argv[1],boud,timeout=0.5)
+	try:
+		tty = serial.Serial(sys.argv[1],boud,timeout=0.5)
+	except serial.serialutil.SerialException as e:
+		print(e)
+		os._exit(1)
 	thread.start_new_thread(reader,(tty,))
 	sys.stdout.write("\r")
 	sys.stdout.flush()
@@ -126,6 +132,7 @@ def base64_split(buff):
 #sometimes file.open(_,"w") kept on returning nil until the first read operation on it. So I wrote a little hack:
 OPEN_SEQ = 'file.close() if file.open("{0}","r") then file.read(0) file.seek("set") file.close() end file.open("{0}","w")'
 def command(line):
+	global stop_command
 	args = re.split('\s+',line[1:])
 	cmd = find_cmd(args[0])
 	if cmd == None:
@@ -162,7 +169,11 @@ def command(line):
 				print("file {0} not found".format(args[2]))
 				return False
 		else:
-			buff = clipboard.paste()
+			try:
+				buff = bytes(clipboard.paste())
+			except UnicodeEncodeError:
+				print("invalid clipboard content")
+				return False
 		if cmd == 'cross-compile' or cmd == 'execute':
 			buff = luac_compile(buff)
 			if buff == None:
@@ -191,12 +202,17 @@ def command(line):
 		else:
 			head = re.split("[\r\n]+",buff)
 		sys.stdout.write(reader_prompt)
+		stop_command = False
 		for x in head:
+			if stop_command:
+				print("aborted")
+				break
 			if x[0]==':' and (cmd=='load' or cmd=='paste'):
 				command(x)
 			else:
 				tty_send(bytes(x))
 				sem.acquire()
+		stop_command = True
 reader_quit = False
 reader_prompt = ''
 def reader(tty):
@@ -234,7 +250,7 @@ def reader(tty):
 def run():
 	global reader_prompt
 	print("waiting for prompt...")
-	open_tty(b)
+	open_tty(boudrate)
 	print("\rprompt ok.")
 	sys.stdout.write(reader_prompt)
 	replcmd.cmdloop()
@@ -251,16 +267,17 @@ if __name__ == '__main__':
 		exit(0)
 	if len(sys.argv)>2:
 		if 'fast'.find(sys.argv[2])==0:
-			b = 460800
+			boudrate = 460800
 		else:
-			b = int(sys.argv[2])
-	else:
-		b = 9600
+			boudrate = int(sys.argv[2])
 	thread.start_new_thread(run,())
 	while True:
 		try:
 			time.sleep(0.1)
 		except KeyboardInterrupt:
-			if use_readline:
-				os.system('stty sane')
-			exit(0)
+			if not stop_command:
+				stop_command = True
+			else:
+				if use_readline:
+					os.system('stty sane')
+				exit(0)
